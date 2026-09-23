@@ -127,7 +127,7 @@ agentic-commerce/
 │  └─ static/                            # 静态资产与 Mock 占位图
 ├─ logs/                                 # 运行时日志目录 (app/access/agent)
 ├─ prompts/                              # 集中提示词仓库 (7 个 Agent 的 Prompt 模板)
-├─ tests/                                # 自动化测试套件 (unit/integration/agent)
+├─ ailog/                                # AI 执行历史全量审计日志 (时间戳归档)
 ├─ docs/                                 # 架构设计与需求规格说明书
 ├─ main.py                               # FastAPI 主入口 (端口 8002)
 ├─ run_workflow.py                       # CLI 智能体工作流调试脚本
@@ -165,10 +165,7 @@ cd frontend
 npm install
 npm run dev
 
-# 7. 运行自动化测试套件
-pytest tests/
-
-# 8. 停止开发基础设施
+# 7. 停止开发基础设施
 docker-compose -f docker-compose.infra.yml down
 ```
 
@@ -180,3 +177,14 @@ docker-compose -f docker-compose.infra.yml down
 2. **异步优先**：涉及数据库 I/O（`asyncpg`）、HTTP 调用（`httpx`）以及 Redis 操作，一律使用异步函数 `async/await`。
 3. **禁止硬编码**：任何密钥、配置项均需定义在 `app.conf.config.Settings` 中，严禁在代码中写死明文密码或外部 API Key。
 4. **日志合规**：打印日志时严禁输出用户明文密码、API Key 等敏感数据；关键节点日志必须附带 `trace_id`。
+
+---
+
+## 六、AI 执行日志自动归档准则 (ailog/ 与 execution-logger)
+
+每次 AI 编码助手执行用户任务或重大架构变更时，**必须执行日志落盘归档**：
+1. **归档目录**：项目根目录下的 `ailog/`。
+2. **文件命名格式**：`ailog/YYYY-MM-DD_HH-mm-ss_<action_slug>.md`。
+3. **内容必须完整**：包含执行时间戳、用户原始需求、架构思考与决策逻辑、增删改查文件清单、命令执行记录与最终产出结果。
+4. **Skill 联动**：严格遵循 `.claude/skills/execution-logger/SKILL.md` 与 `.agents/skills/execution-logger/SKILL.md` 的指引，确保所有历史操作 100% 可追溯。
+

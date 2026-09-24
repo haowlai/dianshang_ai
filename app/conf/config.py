@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # PostgreSQL 16
     POSTGRES_HOST: str = "127.0.0.1"
-    POSTGRES_PORT: int = 5432
+    POSTGRES_PORT: int = 5434
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgres"
     POSTGRES_DB: str = "agentic_commerce"
@@ -34,10 +34,13 @@ class Settings(BaseSettings):
     DB_MAX_OVERFLOW: int = 10
 
     # Redis 7
-    REDIS_URL: str = "redis://127.0.0.1:6379/0"
+    REDIS_PORT: int = 6381
+    REDIS_URL: str = "redis://127.0.0.1:6381/0"
 
     # MinIO
-    MINIO_ENDPOINT: str = "127.0.0.1:9000"
+    MINIO_API_PORT: int = 9010
+    MINIO_CONSOLE_PORT: int = 9011
+    MINIO_ENDPOINT: str = "127.0.0.1:9010"
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET: str = "agentic-assets"
@@ -53,6 +56,8 @@ class Settings(BaseSettings):
     DASHSCOPE_API_KEY: str = ""
     WANX_API_KEY: str = ""
     KLING_API_KEY: str = ""
+    KLING_ACCESS_KEY_ID: str = ""
+    KLING_ACCESS_KEY_SECRET: str = ""
     OPENAI_API_KEY: str = ""
     SENSENOVA_API_KEY: str = ""
 

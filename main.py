@@ -36,6 +36,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from app.api.v1 import api_v1_router
+
+# 注册 API v1 全量路由树
+app.include_router(api_v1_router)
+
 @app.get("/health", tags=["System"])
 async def health_check():
     """健康检查接口"""

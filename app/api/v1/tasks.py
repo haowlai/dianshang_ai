@@ -17,7 +17,6 @@ from app.models.copy import Copy
 from app.models.asset import Asset
 from app.models.compliance import ComplianceReport
 from app.models.base import generate_uuid32
-from app.agent.graph import app_workflow
 
 logger = logging.getLogger("tasks_api")
 router = APIRouter(prefix="/tasks", tags=["生成任务调度"])
@@ -37,6 +36,7 @@ class TaskCreateRequest(BaseModel):
 async def run_agent_workflow_background(task_id: str, tenant_id: str, sku_id: str, config: dict):
     """后台异步触发 7-Agent 工作流"""
     try:
+        from app.agent.graph import app_workflow
         # 1. 查询 SKU 详情
         from app.clients.postgres import AsyncSessionLocal
         async with AsyncSessionLocal() as session:

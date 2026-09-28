@@ -91,8 +91,6 @@ agentic-commerce/
 │  │  ├─ nodes/                          # 7 个 Agent 节点实现
 │  │  ├─ graph.py                        # 状态图构建、节点连接与条件边
 │  │  ├─ state.py                        # AgentState 共享状态 TypedDict
-│  │  ├─ context.py                      # 运行上下文与 trace_id 传递
-│  │  └─ llm.py                          # LLM 模型工厂与客户端延迟加载
 │  ├─ api/                               # 接口路由层
 │  │  └─ v1/                             # /api/v1 各业务模块路由
 │  ├─ clients/                           # 基础设施客户端 (PG, Redis, MinIO, AI厂商)

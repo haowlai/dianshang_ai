@@ -10,6 +10,7 @@ from app.agent.recorder import record_node_execution
 from app.clients.postgres import AsyncSessionLocal
 from app.clients.provider_factory import ProviderFactory
 from app.models.copy import Copy
+from app.prompt.templates import load_prompt_template
 
 logger = logging.getLogger("creative_planner_node")
 
@@ -49,8 +50,9 @@ async def creative_planner_node(state: AgentState) -> dict:
 3. DESCRIPTION: 沉浸式场景化长描述。
 4. KEYWORDS: 5-8个高频英文搜索词。
 """
+    system_prompt = load_prompt_template("creative_planner") or "你是一位专注于欧美亚马逊爆款打造的资深文案专家，严禁使用虚假绝对化词汇。"
     messages = [
-        {"role": "system", "content": "你是一位专注于欧美亚马逊爆款打造的资深文案专家，严禁使用虚假绝对化词汇。"},
+        {"role": "system", "content": system_prompt},
         {"role": "human", "content": prompt_human}
     ]
 

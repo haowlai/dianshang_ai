@@ -10,6 +10,7 @@ from app.agent.recorder import record_node_execution
 from app.clients.postgres import AsyncSessionLocal
 from app.clients.provider_factory import ProviderFactory
 from app.models.asset import Asset
+from app.prompt.templates import load_prompt_template
 
 logger = logging.getLogger("image_generator_node")
 
@@ -21,6 +22,11 @@ async def image_generator_node(state: AgentState) -> dict:
     prompts = state.get("generation_prompts") or {}
 
     logger.info(f"图片生成智能体启动: task_id={task_id}")
+
+    # 加载 prompts/image_generator.md 模板用于执行追踪
+    agent_prompt = load_prompt_template("image_generator")
+    if agent_prompt:
+        logger.info(f"已加载图片智能体提示词模板 ({len(agent_prompt)} 字符)")
 
     image_client = ProviderFactory.get_image_client("wanx")
     generated_assets = []

@@ -12,6 +12,7 @@ from app.clients.postgres import AsyncSessionLocal
 from app.clients.provider_factory import ProviderFactory
 from app.models.compliance import ComplianceReport
 from app.models.task import Task
+from app.prompt.templates import load_prompt_template
 from sqlalchemy import update
 
 logger = logging.getLogger("quality_reviewer_node")
@@ -52,8 +53,9 @@ async def quality_reviewer_node(state: AgentState) -> dict:
   "suggestions": ["文案符合平台合规要求，无夸大宣传", "首图符合纯白底规范"]
 }}
 """
+    system_prompt = load_prompt_template("quality_reviewer") or "你是一位出海电商质检专家，具备严格的国际商标法、亚马逊合规政策与广告法审核能力。"
     messages = [
-        {"role": "system", "content": "你是一位出海电商质检专家，具备严格的国际商标法、亚马逊合规政策与广告法审核能力。"},
+        {"role": "system", "content": system_prompt},
         {"role": "human", "content": prompt_human}
     ]
 

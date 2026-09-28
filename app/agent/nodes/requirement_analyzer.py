@@ -11,6 +11,7 @@ from app.agent.recorder import record_node_execution
 from app.clients.postgres import AsyncSessionLocal
 from app.clients.provider_factory import ProviderFactory
 from app.models.knowledge import KnowledgeChunk
+from app.prompt.templates import load_prompt_template
 
 logger = logging.getLogger("requirement_analyzer_node")
 
@@ -55,8 +56,9 @@ async def requirement_analyzer_node(state: AgentState) -> dict:
 2. 3大核心差异化卖点（结合规格）
 3. 核心 SEO 英文关键词（5-8个）
 """
+    system_prompt = load_prompt_template("requirement_analyzer") or "你是一位拥有10年经验的跨境电商资深产品策划总监，擅长精准洞察海外消费者心理。"
     messages = [
-        {"role": "system", "content": "你是一位拥有10年经验的跨境电商资深产品策划总监，擅长精准洞察海外消费者心理。"},
+        {"role": "system", "content": system_prompt},
         {"role": "human", "content": prompt_human}
     ]
 

@@ -10,6 +10,7 @@ from app.agent.recorder import record_node_execution
 from app.clients.postgres import AsyncSessionLocal
 from app.clients.provider_factory import ProviderFactory
 from app.models.asset import Asset
+from app.prompt.templates import load_prompt_template
 
 logger = logging.getLogger("video_generator_node")
 
@@ -22,6 +23,11 @@ async def video_generator_node(state: AgentState) -> dict:
     images = state.get("generated_images") or []
 
     logger.info(f"视频生成智能体启动: task_id={task_id}")
+
+    # 加载 prompts/video_generator.md 模板用于执行追踪
+    agent_prompt = load_prompt_template("video_generator")
+    if agent_prompt:
+        logger.info(f"已加载视频智能体提示词模板 ({len(agent_prompt)} 字符)")
 
     video_prompt = prompts.get("video_storyboard", "cinematic product demonstration video")
     ref_image_url = images[0].get("url") if images else None

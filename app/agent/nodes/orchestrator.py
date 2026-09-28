@@ -10,6 +10,7 @@ from app.agent.state import AgentState
 from app.agent.recorder import record_node_execution
 from app.clients.postgres import AsyncSessionLocal
 from app.models.sku import Sku
+from app.prompt.templates import load_prompt_template
 
 logger = logging.getLogger("orchestrator_node")
 
@@ -42,8 +43,10 @@ async def orchestrator_node(state: AgentState) -> dict:
             logger.warning(f"读取 SKU 详情异常: {str(e)}")
 
     elapsed_ms = int((time.time() - start_time) * 1000)
+    system_prompt = load_prompt_template("orchestrator")
     output_snapshot = {
         "status": "initialized",
+        "system_prompt_loaded": bool(system_prompt),
         "sku_code": sku_data.get("code", "UNKNOWN"),
         "sku_name": sku_data.get("name", "Default Product"),
         "target_agents": [

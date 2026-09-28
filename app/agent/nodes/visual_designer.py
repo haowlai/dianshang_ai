@@ -8,6 +8,7 @@ import logging
 from app.agent.state import AgentState
 from app.agent.recorder import record_node_execution
 from app.clients.provider_factory import ProviderFactory
+from app.prompt.templates import load_prompt_template
 
 logger = logging.getLogger("visual_designer_node")
 
@@ -34,8 +35,9 @@ async def visual_designer_node(state: AgentState) -> dict:
 3. 细节图 Prompt (微距特写、精密机械结构或材质纹理细节)
 4. 15秒带货短视频 5 镜头分镜脚本 (Hook, Pain Point, Demo, Lifestyle, CTA)
 """
+    system_prompt = load_prompt_template("visual_designer") or "你是一位顶级商业视觉总监与 AI Prompt 工程师，深谙 Midjourney 与 Wanx/Kling 提示词调优技巧。"
     messages = [
-        {"role": "system", "content": "你是一位顶级商业视觉总监与 AI Prompt 工程师，深谙 Midjourney 与 Wanx/Kling 提示词调优技巧。"},
+        {"role": "system", "content": system_prompt},
         {"role": "human", "content": prompt_human}
     ]
 

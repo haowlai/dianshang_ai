@@ -74,6 +74,41 @@ class SkuService(BaseService):
         await self.session.commit()
         return sku_id
 
+    async def extract_specs(self, description: str) -> dict:
+        """从白话长描述中提取结构化规格参数 (基于独立 Prompt 模版与 Qwen LLM 服务)"""
+        import json
+        import re
+        from app.prompt.templates import render_prompt_template
+        from app.clients.provider_factory import ProviderFactory
+
+        # 1. 从 prompts/spec_extractor.md 独立加载与渲染提示词
+        rendered_prompt = render_prompt_template("spec_extractor", description=description)
+
+        # 2. 调用模型服务层
+        llm = ProviderFactory.get_llm_client()
+        messages = [{"role": "user", "content": rendered_prompt}]
+
+        res = await llm.chat_completion(messages=messages, temperature=0.1)
+        content = res.get("content", "").strip()
+
+        # 3. 提取与清洗 JSON 对象
+        json_match = re.search(r"\{.*\}", content, re.DOTALL)
+        if json_match:
+            content = json_match.group(0)
+
+        try:
+            specs_dict = json.loads(content)
+            if isinstance(specs_dict, dict):
+                return {
+                    "specs": specs_dict,
+                    "is_mock": res.get("is_mock", 0),
+                    "model": res.get("model", ""),
+                }
+        except Exception as e:
+            logger.warning(f"大模型提取规格参数 JSON 解析失败: {str(e)}, content: {content}")
+
+        return {"specs": {}, "is_mock": res.get("is_mock", 0), "model": res.get("model", "")}
+
     # ─── private helpers ───
 
     async def _get_or_404(self, tenant_id: str, sku_id: str) -> Sku:

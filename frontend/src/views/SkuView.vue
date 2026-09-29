@@ -6,7 +6,7 @@
         <p class="page-desc">维护出海选品基础规格、特征卖点与设计参考图</p>
       </div>
       <div class="actions">
-        <button class="btn btn-primary" @click="showCreateModal = true">+ 录入新商品 SKU</button>
+        <button class="btn btn-primary" @click="openCreateModal">+ 录入新商品 SKU</button>
       </div>
     </div>
 
@@ -32,7 +32,7 @@
     <div class="sku-grid">
       <div v-for="s in skus" :key="s.id" class="sku-card card">
         <div class="sku-media">
-          <img :src="s.images?.[0] || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600'" class="sku-img" />
+          <img :src="s.images?.[0] || '/bg_img/outdoor.jpg'" class="sku-img" />
           <span class="category-tag">{{ s.category }}</span>
         </div>
         <div class="sku-content">
@@ -57,31 +57,82 @@
 
     <!-- 录入新 SKU 弹窗 -->
     <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
-      <div class="modal-content">
+      <div class="modal-content modal-lg">
         <h3 class="modal-title mb-4">录入新商品 SKU</h3>
+
         <div class="form-group">
           <label class="form-label">商品编码 (SKU Code)</label>
           <div style="display: flex; gap: 8px;">
-            <input type="text" v-model="form.code" class="form-input" placeholder="例如: SKU-2026-TENT03" />
+            <input type="text" v-model="form.code" class="form-input" placeholder="例如: OUT-12345" />
             <button type="button" class="btn btn-secondary" style="white-space: nowrap; padding: 0 16px;" @click="generateSku">自动生成</button>
           </div>
         </div>
+        
         <div class="form-group">
           <label class="form-label">商品名称</label>
           <input type="text" v-model="form.name" class="form-input" placeholder="例如: 极简防风双人户外露营帐篷" />
         </div>
+
         <div class="form-group">
           <label class="form-label">类目分类</label>
-          <select v-model="form.category" class="form-select">
+          <select v-model="form.category" class="form-select" @change="onCategoryChange">
             <option value="户外运动">户外运动</option>
             <option value="数码配件">数码配件</option>
             <option value="家居生活">家居生活</option>
           </select>
         </div>
+
         <div class="form-group">
-          <label class="form-label">商品核心卖点与背景描述</label>
-          <textarea v-model="form.description" class="form-textarea" rows="3" placeholder="描述材质、设计亮点、防水等级等"></textarea>
+          <div class="label-with-action">
+            <label class="form-label mb-0">商品描述与白话卖点</label>
+            <button 
+              type="button" 
+              class="btn btn-xs btn-ai-extract" 
+              :disabled="isExtracting"
+              @click="aiExtractSpecs" 
+              title="发送至通义千问 Qwen 大模型自动提取 JSON 参数"
+            >
+              {{ isExtracting ? '⚡ 正在调用通义千问提取中...' : '⚡ 大模型智能提取规格' }}
+            </button>
+          </div>
+          <textarea 
+            v-model="form.description" 
+            class="form-textarea" 
+            rows="3" 
+            placeholder="如：这是一款最新研发的降噪耳机，蓝牙5.4芯片，防水达到IPX5级，电池500mAh，重210g..."
+          ></textarea>
         </div>
+
+        <!-- 高度定制化：结构化规格参数 (JSON 扩展编辑器) -->
+        <div class="form-group specs-editor-card">
+          <div class="specs-editor-header">
+            <div>
+              <span class="specs-title">结构化规格参数 JSON 映射</span>
+              <span class="specs-subtitle">用于后续 Agent 生成素材与参数表格渲染</span>
+            </div>
+            <div class="specs-actions">
+              <button type="button" class="btn btn-xs btn-outline" @click="loadCategoryPresetSpecs">
+                📋 装载【{{ form.category }}】常用模版
+              </button>
+              <button type="button" class="btn btn-xs btn-secondary" @click="addSpecRow">
+                + 新增属性键值
+              </button>
+            </div>
+          </div>
+
+          <div class="specs-input-list">
+            <div v-for="(item, idx) in specList" :key="idx" class="spec-input-row">
+              <input type="text" v-model="item.key" class="form-input key-input" placeholder="属性名 (如: 蓝牙版本)" />
+              <span class="colon">:</span>
+              <input type="text" v-model="item.value" class="form-input val-input" placeholder="属性值 (如: 5.4)" />
+              <button type="button" class="btn-icon-del" title="删除" @click="removeSpecRow(idx)">✕</button>
+            </div>
+            <div v-if="specList.length === 0" class="empty-specs-tip">
+              暂未配置规格参数，可点击【+ 新增属性键值】或【装载常用模版】
+            </div>
+          </div>
+        </div>
+
         <div class="modal-footer mt-4">
           <button class="btn btn-secondary" @click="showCreateModal = false">取消</button>
           <button class="btn btn-primary" @click="submitCreateSku">保存入库</button>
@@ -101,26 +152,112 @@ const skus = ref<any[]>([])
 const searchQ = ref('')
 const selectedCategory = ref('')
 const showCreateModal = ref(false)
+const isExtracting = ref(false)
+
+interface SpecItem {
+  key: string
+  value: string
+}
+
+const specList = ref<SpecItem[]>([])
 
 const form = ref({
   code: '',
   name: '',
   category: '户外运动',
   description: '',
-  specs: { "材质": "高强度复合材料", "重量": "1.5kg" },
   images: []
 })
 
+// 类目通用规格模版预设
+const CATEGORY_PRESETS: Record<string, SpecItem[]> = {
+  '户外运动': [
+    { key: '材质', value: '高强度防水撕裂布' },
+    { key: '重量', value: '1.5kg' },
+    { key: '防风等级', value: '7级' },
+    { key: '展开尺寸', value: '200x150x110cm' }
+  ],
+  '数码配件': [
+    { key: '蓝牙版本', value: '5.4' },
+    { key: '防水等级', value: 'IPX5' },
+    { key: '电池容量', value: '500mAh' },
+    { key: '降噪深度', value: '45dB' }
+  ],
+  '家居生活': [
+    { key: '材质', value: '天然环保大理石/竹木' },
+    { key: '适用空间', value: '客厅/卧室' },
+    { key: '容量', value: '1.2L' },
+    { key: '净重', value: '850g' }
+  ]
+}
+
+function openCreateModal() {
+  resetForm()
+  showCreateModal.value = true
+}
+
+function onCategoryChange() {
+  if (specList.value.length === 0 || specList.value.every(s => !s.key && !s.value)) {
+    loadCategoryPresetSpecs()
+  }
+}
+
+function loadCategoryPresetSpecs() {
+  const preset = CATEGORY_PRESETS[form.value.category] || []
+  specList.value = preset.map(item => ({ ...item }))
+}
+
+function addSpecRow() {
+  specList.value.push({ key: '', value: '' })
+}
+
+function removeSpecRow(index: number) {
+  specList.value.splice(index, 1)
+}
+
 function generateSku() {
-  // 电商标准 SKU 规范: 类目缩写(3位) + 流水号(5位纯数字)
   const categoryCodeMap: Record<string, string> = {
     '户外运动': 'OUT',
     '数码配件': 'DGC',
     '家居生活': 'HOM'
   }
   const prefix = categoryCodeMap[form.value.category] || 'GEN'
-  const randomNum = Math.floor(Math.random() * 90000) + 10000 // 10000-99999
+  const randomNum = Math.floor(Math.random() * 90000) + 10000
   form.value.code = `${prefix}-${randomNum}`
+}
+
+// 真正调用后端 API 通义千问 Qwen 大模型提取白话中的规格属性
+async function aiExtractSpecs() {
+  const desc = form.value.description
+  if (!desc.trim()) {
+    alert('请先在上方输入商品白话描述！')
+    return
+  }
+
+  isExtracting.value = true
+  try {
+    const res = await client.post('/skus/extract-specs', { description: desc })
+    const specsData = res.data?.data
+    const isMock = res.data?.is_mock ? ' (Mock模式)' : ' (通义千问 Qwen)'
+
+    if (specsData && typeof specsData === 'object' && Object.keys(specsData).length > 0) {
+      const extracted: SpecItem[] = Object.entries(specsData).map(([k, v]) => ({
+        key: String(k),
+        value: String(v)
+      }))
+      specList.value = extracted
+      alert(`⚡ 通义千问 Qwen 大模型提取成功${isMock}！已结构化解析出 ${extracted.length} 项规格参数，可自由核对或微调。`)
+    } else {
+      alert('大模型已响应，未从描述中提取出明确的规格属性，可手动点击【+ 新增属性键值】。')
+      if (specList.value.length === 0) {
+        addSpecRow()
+      }
+    }
+  } catch (e: any) {
+    alert('调用大模型接口失败: ' + (e.response?.data?.detail || e.message))
+  } finally {
+    isExtracting.value = false
+  }
 }
 
 async function loadSkus() {
@@ -141,9 +278,9 @@ function resetForm() {
     name: '',
     category: '户外运动',
     description: '',
-    specs: { "材质": "高强度复合材料", "重量": "1.5kg" },
     images: []
   }
+  loadCategoryPresetSpecs()
 }
 
 async function submitCreateSku() {
@@ -151,18 +288,30 @@ async function submitCreateSku() {
     alert('请填写编码与商品名称')
     return
   }
+
+  const specsDict: Record<string, string> = {}
+  specList.value.forEach(item => {
+    if (item.key.trim() && item.value.trim()) {
+      specsDict[item.key.trim()] = item.value.trim()
+    }
+  })
+
   try {
     const imgMap: Record<string, string> = {
       '户外运动': '/bg_img/outdoor.jpg',
       '数码配件': '/bg_img/digital.jpg',
       '家居生活': '/bg_img/home.jpg'
     }
-    const payload = { ...form.value, images: [imgMap[form.value.category] || '/bg_img/outdoor.jpg'] }
-    
+    const payload = { 
+      ...form.value, 
+      specs: specsDict,
+      images: [imgMap[form.value.category] || '/bg_img/outdoor.jpg'] 
+    }
+
     await client.post('/skus', payload)
     showCreateModal.value = false
     resetForm()
-    alert('SKU 创建成功！')
+    alert('SKU 创建成功！参数已格式化入库。')
     loadSkus()
   } catch (e: any) {
     alert(e.response?.data?.detail || '创建失败，编码可能已存在')
@@ -265,5 +414,113 @@ onMounted(() => {
 
 .sku-card-actions { padding: 0 16px 16px; }
 .full-width { width: 100%; }
+
+/* 扩展规格参数编辑器样式 */
+.modal-lg { max-width: 620px; }
+.label-with-action {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.btn-ai-extract {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-ai-extract:hover {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.specs-editor-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 14px;
+}
+.specs-editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+.specs-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+.specs-subtitle {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
+.specs-actions {
+  display: flex;
+  gap: 8px;
+}
+.btn-outline {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+}
+.btn-outline:hover {
+  background: #f1f5f9;
+}
+
+.specs-input-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.spec-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.key-input {
+  width: 40%;
+  font-size: 12.5px;
+}
+.colon {
+  font-weight: bold;
+  color: #94a3b8;
+}
+.val-input {
+  flex: 1;
+  font-size: 12.5px;
+}
+.btn-icon-del {
+  background: transparent;
+  border: none;
+  color: #ef4444;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.btn-icon-del:hover {
+  background: #fee2e2;
+}
+.empty-specs-tip {
+  font-size: 12px;
+  color: #94a3b8;
+  text-align: center;
+  padding: 12px 0;
+}
+
 .modal-footer { display: flex; justify-content: flex-end; gap: 12px; }
 </style>
+

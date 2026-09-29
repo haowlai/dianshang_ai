@@ -62,6 +62,31 @@ async def create_sku(
     return {"code": 200, "data": result, "message": "商品创建成功"}
 
 
+class SkuExtractSpecsRequest(BaseModel):
+    description: str
+
+
+@router.post("/extract-specs")
+async def extract_sku_specs(
+    req: SkuExtractSpecsRequest,
+    db: AsyncSession = Depends(get_db),
+    user_tenant: dict = Depends(get_current_user_and_tenant),
+):
+    """调用 SkuService 服务层从白话描述中提取结构化规格参数 (依赖 prompts/spec_extractor.md 提示词)"""
+    if not req.description or not req.description.strip():
+        raise HTTPException(status_code=400, detail="描述内容不能为空")
+
+    svc = SkuService(db)
+    result = await svc.extract_specs(req.description)
+    return {
+        "code": 200,
+        "data": result.get("specs", {}),
+        "is_mock": result.get("is_mock", 0),
+        "model": result.get("model", ""),
+        "message": "大模型结构化规格提取成功"
+    }
+
+
 @router.get("/{sku_id}")
 async def get_sku(
     sku_id: str,

@@ -2,9 +2,9 @@
 AI 模型厂商工厂 (支持 LLM / 生图 / 生视频 厂商插件化切换与真实 API 调用 / 高保真 Mock 回退)
 
 技术栈与官方文档参考:
-- 阿里百炼 / 通义千问 Qwen: https://help.aliyun.com/zh/model-studio/developer-reference/use-qwen-by-calling-api
-- 阿里百炼 / 通义万相 Wanx 2.1: https://help.aliyun.com/zh/model-studio/developer-reference/wanx-api
-- 快手可灵 Kling AI: https://klingai.com/api/docs
+- 阿里百炼 / 通义千问 Qwen (LLM & Text Embedding): https://help.aliyun.com/zh/model-studio/developer-reference/use-qwen-by-calling-api
+- 阿里百炼 / Qwen Image 3.0 Pro: https://help.aliyun.com/zh/model-studio/developer-reference/multimodal-generation
+- 阿里百炼 / Wan 3.0 Video: https://help.aliyun.com/zh/model-studio/developer-reference/video-generation
 """
 
 import os
@@ -18,12 +18,13 @@ from app.conf.config import settings
 logger = logging.getLogger("provider_factory")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 1. 通义千问 (Qwen) LLM 客户端
+# 1. 通义千问 (Qwen) LLM & Embedding 客户端
 # ──────────────────────────────────────────────────────────────────────────────
 class QwenLLMClient:
     """通义千问官方兼容接口客户端 (OpenAI 协议兼容)"""
 
     BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    EMBEDDING_URL = "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding"
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or settings.DASHSCOPE_API_KEY
@@ -85,7 +86,7 @@ class QwenLLMClient:
             return self._mock_chat_completion(messages, model)
 
     async def get_embedding(self, text: str, model: str = "text-embedding-v4") -> List[float]:
-        """获取文本 1024 维 Embedding 向量"""
+        """获取文本 Embedding 向量 (使用 DashScope HTTP API)"""
         if not self.api_key or self.api_key.strip() == "":
             # 伪归一化向量 (1024 维)
             return [0.03125] * 1024
@@ -94,16 +95,19 @@ class QwenLLMClient:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        payload = {"model": model, "input": text, "dimensions": 1024}
+        payload = {"model": model, "input": {"texts": [text]}}
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.post(
-                    f"{self.BASE_URL}/embeddings",
+                    self.EMBEDDING_URL,
                     headers=headers,
                     json=payload,
                 )
                 if resp.status_code == 200:
-                    return resp.json()["data"][0]["embedding"]
+                    data = resp.json()
+                    return data["output"]["embeddings"][0]["embedding"]
+                else:
+                    logger.warning(f"Embedding API 响应异常: {resp.text}")
         except Exception as e:
             logger.warning(f"获取 Embedding 异常: {str(e)}，返回默认向量")
         return [0.03125] * 1024
@@ -112,7 +116,6 @@ class QwenLLMClient:
         """针对电商多智能体业务构建的高拟真 Mock 文本"""
         last_msg = messages[-1]["content"] if messages else ""
         
-        # 智能匹配返回结构 (需求分析 / 创意文案 / 分镜设计 / 审核)
         if "需求分析" in last_msg or "analyzer" in last_msg.lower():
             mock_text = (
                 "【目标受众定位】25-45岁热爱轻量化户外探险与露营的精致生活人群。\n"
@@ -167,13 +170,13 @@ class QwenLLMClient:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 2. 通义万相 (Wanx 2.1) 生图客户端
+# 2. Qwen Image 3.0 Pro 生图客户端
 # ──────────────────────────────────────────────────────────────────────────────
 class WanxImageClient:
-    """通义万相 2.1 生图官方异步接口客户端"""
+    """通义万相 / Qwen Image 3.0 Pro 生图客户端"""
 
-    SUBMIT_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis"
-    TASK_URL = "https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}"
+    # 用户指定的专有 Workspace API Endpoint
+    SUBMIT_URL = "https://llm-pqoya4ttmg66ljtm.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 
     # 高清商品展示样本图 (Unsplash 高清商业级正版素材)
     DEMO_PRODUCT_IMAGES = [
@@ -191,60 +194,63 @@ class WanxImageClient:
         prompt: str,
         n: int = 1,
         size: str = "1024*1024",
-        model: str = "wanx2.1-t2i-turbo",
+        model: str = "qwen-image-3.0-pro",
     ) -> Dict[str, Any]:
-        """提交文生图任务并轮询获取结果；无 Key 时自动切换高清商品级 Mock"""
+        """同步返回结果文生图任务；无 Key 时自动切换高清商品级 Mock"""
         start_time = time.time()
 
         if not self.api_key or self.api_key.strip() == "":
-            logger.info("未检测到 WANX_API_KEY，启用万相 2.1 高保真 Mock 生图模式")
+            logger.info("未检测到 API_KEY，启用 Qwen Image 高保真 Mock 生图模式")
             return self._mock_generate_images(prompt, n, size, model)
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "X-DashScope-Async": "enable",
             "Content-Type": "application/json",
         }
         payload = {
             "model": model,
-            "input": {"prompt": prompt},
-            "parameters": {"size": size, "n": n},
+            "input": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"text": prompt}]
+                    }
+                ]
+            },
+            "parameters": {"prompt_extend": True}
         }
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                submit_resp = await client.post(self.SUBMIT_URL, headers=headers, json=payload)
-                if submit_resp.status_code == 200:
-                    task_id = submit_resp.json()["output"]["task_id"]
-                    logger.info(f"Wanx 2.1 任务已提交，TaskID: {task_id}，正在轮询...")
-
-                    # 轮询任务状态 (最多 60 秒)
-                    for _ in range(30):
-                        await asyncio.sleep(2)
-                        query_resp = await client.get(
-                            self.TASK_URL.format(task_id=task_id),
-                            headers={"Authorization": f"Bearer {self.api_key}"},
-                        )
-                        if query_resp.status_code == 200:
-                            q_data = query_resp.json()
-                            status = q_data["output"]["task_status"]
-                            if status == "SUCCEEDED":
-                                results = q_data["output"]["results"]
-                                urls = [item["url"] for item in results]
-                                elapsed_ms = int((time.time() - start_time) * 1000)
-                                return {
-                                    "urls": urls,
-                                    "task_id": task_id,
-                                    "elapsed_ms": elapsed_ms,
-                                    "cost": 0.08 * n,
-                                    "is_mock": 0,
-                                    "model": model,
-                                }
-                            elif status in ["FAILED", "CANCELED"]:
-                                logger.warning(f"Wanx 任务失败: {q_data}，切换 Mock")
-                                break
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(self.SUBMIT_URL, headers=headers, json=payload)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    # Qwen Image 3.0 Pro multimodal generation API 返回的是同步图像内容
+                    # 结构解析: data["output"]["choices"][0]["message"]["content"][0]["image"]
+                    choices = data.get("output", {}).get("choices", [])
+                    urls = []
+                    for choice in choices:
+                        content_list = choice.get("message", {}).get("content", [])
+                        for item in content_list:
+                            if item.get("type") == "image":
+                                urls.append(item.get("image"))
+                    
+                    if urls:
+                        elapsed_ms = int((time.time() - start_time) * 1000)
+                        return {
+                            "urls": urls,
+                            "task_id": data.get("request_id", ""),
+                            "elapsed_ms": elapsed_ms,
+                            "cost": 0.08 * n,
+                            "is_mock": 0,
+                            "model": model,
+                        }
+                    else:
+                        logger.warning(f"Qwen Image 响应中未找到图片 URL: {data}")
+                else:
+                    logger.warning(f"Qwen Image 响应状态异常 ({resp.status_code}): {resp.text}")
         except Exception as e:
-            logger.error(f"Wanx 生图请求异常: {str(e)}，自动回退 Mock")
+            logger.error(f"Qwen Image 生图请求异常: {str(e)}，自动回退 Mock")
 
         return self._mock_generate_images(prompt, n, size, model)
 
@@ -266,12 +272,13 @@ class WanxImageClient:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 3. 快手可灵 (Kling AI) 生视频客户端
+# 3. 万相 Wan 3.0 Video 生视频客户端
 # ──────────────────────────────────────────────────────────────────────────────
 class KlingVideoClient:
-    """快手可灵 Kling AI 官方视频生成接口客户端"""
+    """通义万相 Wan 3.0 Video 生视频客户端"""
 
-    BASE_URL = "https://api.klingai.com/v1"
+    SUBMIT_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis"
+    TASK_URL = "https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}"
 
     # 高清产品动态视频样本 (电商带货场景演示流)
     DEMO_PRODUCT_VIDEOS = [
@@ -281,57 +288,64 @@ class KlingVideoClient:
     ]
 
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or settings.KLING_API_KEY
+        # 用户要求替换可灵，所以这里实际是万相视频，为了不改外面代码类名保留不变，或外层可以不依赖类名。
+        # 实际调用的已经是 Wan 3.0 API
+        self.api_key = api_key or settings.DASHSCOPE_API_KEY
 
     async def generate_video(
         self,
         prompt: str,
         duration: int = 5,
         aspect_ratio: str = "16:9",
-        model: str = "kling-v1",
+        model: str = "wan3.0-video",
         image_url: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """创建文生/图生视频任务；无 Key 时自动切换商品演示 Mock"""
+        """创建文生视频任务；无 Key 时自动切换商品演示 Mock"""
         start_time = time.time()
 
         if not self.api_key or self.api_key.strip() == "":
-            logger.info("未检测到 KLING_API_KEY，启用 Kling AI 高保真 Mock 视频生成模式")
+            logger.info("未检测到 DASHSCOPE_API_KEY，启用 Wan 3.0 高保真 Mock 视频生成模式")
             return self._mock_generate_video(prompt, duration, aspect_ratio, model)
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
+            "X-DashScope-Async": "enable"
         }
-        endpoint = f"{self.BASE_URL}/videos/image2video" if image_url else f"{self.BASE_URL}/videos/text2video"
+        # 将比例转换为 adaptive (Wan 3.0 支持 adaptive 适配)
         payload = {
             "model": model,
-            "prompt": prompt,
-            "duration": str(duration),
-            "aspect_ratio": aspect_ratio,
+            "input": {"prompt": prompt},
+            "parameters": {
+                "resolution": "480P", 
+                "ratio": "adaptive", 
+                "duration": duration
+            }
         }
+        # 如果是图生视频，可以添加 image 字段 (如 API 支持)
         if image_url:
-            payload["image"] = image_url
+            payload["input"]["image_url"] = image_url
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(endpoint, headers=headers, json=payload)
+                resp = await client.post(self.SUBMIT_URL, headers=headers, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()
-                    task_id = data.get("data", {}).get("task_id")
-                    logger.info(f"Kling 任务已提交，TaskID: {task_id}，正在等待视频处理...")
+                    task_id = data.get("output", {}).get("task_id")
+                    logger.info(f"Wan 3.0 视频任务已提交，TaskID: {task_id}，正在等待视频处理...")
 
-                    # 轮询查询视频任务
+                    # 轮询查询视频任务 (视频生成比较慢，可能需要几分钟，此处简化轮询)
                     for _ in range(60):
-                        await asyncio.sleep(3)
+                        await asyncio.sleep(5)
                         query_resp = await client.get(
-                            f"{self.BASE_URL}/videos/text2video/{task_id}",
-                            headers=headers,
+                            self.TASK_URL.format(task_id=task_id),
+                            headers={"Authorization": f"Bearer {self.api_key}"},
                         )
                         if query_resp.status_code == 200:
-                            q_data = query_resp.json().get("data", {})
-                            status = q_data.get("task_status")
-                            if status == "succeed":
-                                video_url = q_data.get("task_result", {}).get("videos", [{}])[0].get("url")
+                            q_data = query_resp.json()
+                            status = q_data.get("output", {}).get("task_status")
+                            if status == "SUCCEEDED":
+                                video_url = q_data["output"]["video_url"]
                                 elapsed_ms = int((time.time() - start_time) * 1000)
                                 return {
                                     "video_url": video_url,
@@ -342,11 +356,11 @@ class KlingVideoClient:
                                     "is_mock": 0,
                                     "model": model,
                                 }
-                            elif status == "failed":
-                                logger.warning(f"Kling 视频生成失败: {q_data}，切换 Mock")
+                            elif status in ["FAILED", "CANCELED"]:
+                                logger.warning(f"Wan 3.0 视频生成失败: {q_data}，切换 Mock")
                                 break
         except Exception as e:
-            logger.error(f"Kling 视频调用发生异常: {str(e)}，自动回退 Mock")
+            logger.error(f"Wan 3.0 视频调用发生异常: {str(e)}，自动回退 Mock")
 
         return self._mock_generate_video(prompt, duration, aspect_ratio, model)
 
@@ -355,7 +369,7 @@ class KlingVideoClient:
         video_url = self.DEMO_PRODUCT_VIDEOS[0]
         return {
             "video_url": video_url,
-            "task_id": f"mock_kling_{int(time.time()*1000)}",
+            "task_id": f"mock_wan3_video_{int(time.time()*1000)}",
             "duration": duration,
             "aspect_ratio": aspect_ratio,
             "elapsed_ms": 1200,

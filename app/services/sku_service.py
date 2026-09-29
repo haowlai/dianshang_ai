@@ -41,9 +41,20 @@ class SkuService(BaseService):
         if check.scalar_one_or_none():
             raise ValueError(f"商品编码 {code} 已存在")
 
+        # 智能兜底：若用户未手动配置/未点击提取，但填写了商品描述，入库前自动触发大模型提取
+        final_specs = specs or {}
+        if not final_specs and description and description.strip():
+            try:
+                extracted = await self.extract_specs(description)
+                if extracted.get("specs"):
+                    final_specs = extracted.get("specs")
+                    logger.info(f"保存 SKU {code} 时自动触发大模型抽取补全 specs: {final_specs}")
+            except Exception as e:
+                logger.warning(f"自动提取 specs 兜底失败: {str(e)}")
+
         sku = Sku(
             tenant_id=tenant_id, code=code, name=name, category=category,
-            specs=specs or {}, description=description or "", images=images or [],
+            specs=final_specs, description=description or "", images=images or [],
             created_by=user_id,
         )
         self.session.add(sku)

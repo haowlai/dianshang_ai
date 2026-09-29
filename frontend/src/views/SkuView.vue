@@ -103,16 +103,19 @@
           ></textarea>
         </div>
 
-        <!-- 高度定制化：结构化规格参数 (JSON 扩展编辑器) -->
+        <!-- 商品详细规格参数编辑器 -->
         <div class="form-group specs-editor-card">
           <div class="specs-editor-header">
             <div>
-              <span class="specs-title">结构化规格参数 JSON 映射</span>
-              <span class="specs-subtitle">用于后续 Agent 生成素材与参数表格渲染</span>
+              <span class="specs-title">
+                商品详细规格参数 
+                <span v-if="specList.length > 0" class="specs-count">({{ specList.length }} 项)</span>
+              </span>
+              <span class="specs-subtitle">配置产品核心特征（如材质、尺寸、功能指标），便于自动渲染商品详情表与素材特征</span>
             </div>
             <div class="specs-actions">
               <button type="button" class="btn btn-xs btn-outline" @click="loadCategoryPresetSpecs">
-                📋 装载【{{ form.category }}】常用模版
+                📋 载入【{{ form.category }}】预设参数
               </button>
               <button type="button" class="btn btn-xs btn-secondary" @click="addSpecRow">
                 + 新增属性键值
@@ -122,20 +125,27 @@
 
           <div class="specs-input-list">
             <div v-for="(item, idx) in specList" :key="idx" class="spec-input-row">
-              <input type="text" v-model="item.key" class="form-input key-input" placeholder="属性名 (如: 蓝牙版本)" />
+              <input type="text" v-model="item.key" class="form-input key-input" placeholder="参数名称 (如: 蓝牙版本)" />
               <span class="colon">:</span>
-              <input type="text" v-model="item.value" class="form-input val-input" placeholder="属性值 (如: 5.4)" />
+              <input type="text" v-model="item.value" class="form-input val-input" placeholder="参数数值 (如: 5.4)" />
               <button type="button" class="btn-icon-del" title="删除" @click="removeSpecRow(idx)">✕</button>
             </div>
             <div v-if="specList.length === 0" class="empty-specs-tip">
-              暂未配置规格参数，可点击【+ 新增属性键值】或【装载常用模版】
+              暂未配置规格参数，可点击右上角【+ 新增属性键值】无限扩展添加
             </div>
           </div>
         </div>
 
         <div class="modal-footer mt-4">
-          <button class="btn btn-secondary" @click="showCreateModal = false">取消</button>
-          <button class="btn btn-primary" @click="submitCreateSku">保存入库</button>
+          <button class="btn btn-secondary" @click="showCreateModal = false" :disabled="isSubmitting">取消</button>
+          <button class="btn btn-primary" @click="submitCreateSku" :disabled="isSubmitting">
+            <template v-if="isSubmitting">
+              <span class="spinner"></span> 正在保存与提取规格...
+            </template>
+            <template v-else>
+              保存入库
+            </template>
+          </button>
         </div>
       </div>
     </div>
@@ -283,6 +293,8 @@ function resetForm() {
   loadCategoryPresetSpecs()
 }
 
+const isSubmitting = ref(false)
+
 async function submitCreateSku() {
   if (!form.value.code || !form.value.name) {
     alert('请填写编码与商品名称')
@@ -296,6 +308,12 @@ async function submitCreateSku() {
     }
   })
 
+  // 如果用户写了描述但没写参数，后台会自动触发大模型，这里给个友好的 UI 提示等待
+  if (Object.keys(specsDict).length === 0 && form.value.description.trim()) {
+    console.log('用户未填规格但填写了描述，后台将自动兜底触发 Qwen 大模型提取...')
+  }
+
+  isSubmitting.value = true
   try {
     const imgMap: Record<string, string> = {
       '户外运动': '/bg_img/outdoor.jpg',
@@ -311,10 +329,12 @@ async function submitCreateSku() {
     await client.post('/skus', payload)
     showCreateModal.value = false
     resetForm()
-    alert('SKU 创建成功！参数已格式化入库。')
+    alert('SKU 创建成功！参数已自动入库。')
     loadSkus()
   } catch (e: any) {
     alert(e.response?.data?.detail || '创建失败，编码可能已存在')
+  } finally {
+    isSubmitting.value = false
   }
 }
 
@@ -454,9 +474,15 @@ onMounted(() => {
 }
 .specs-title {
   display: block;
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
   color: #1e293b;
+}
+.specs-count {
+  font-size: 12px;
+  color: #3b82f6;
+  font-weight: 600;
+  margin-left: 2px;
 }
 .specs-subtitle {
   display: block;
@@ -481,9 +507,16 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 180px;
+  max-height: 300px;
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 6px;
+}
+.specs-input-list::-webkit-scrollbar {
+  width: 5px;
+}
+.specs-input-list::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
 }
 .spec-input-row {
   display: flex;

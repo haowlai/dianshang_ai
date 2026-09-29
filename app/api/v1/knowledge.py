@@ -1,16 +1,14 @@
 """
 知识库与 RAG 向量管理接口 (Knowledge Router)
+薄路由层: 仅负责参数解析、权限检查与 HTTP 响应映射
 """
 
-from typing import Optional, List
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_db, get_current_user_and_tenant
-from app.models.knowledge import KnowledgeBaseDoc, KnowledgeChunk
-from app.models.base import generate_uuid32
-from app.clients.provider_factory import ProviderFactory
+from app.services.knowledge_service import KnowledgeService
 
 router = APIRouter(prefix="/knowledge", tags=["知识库RAG管理"])
 
@@ -24,6 +22,7 @@ class QueryTestRequest(BaseModel):
     query_text: str
     top_k: int = 3
 
+
 @router.get("/docs")
 async def list_docs(
     page: int = Query(1, ge=1),
@@ -33,36 +32,10 @@ async def list_docs(
     user_tenant: dict = Depends(get_current_user_and_tenant),
 ):
     """分页获取知识库文档列表"""
-    tenant_id = user_tenant["tenant_id"]
-    query = select(KnowledgeBaseDoc).where(KnowledgeBaseDoc.tenant_id == tenant_id, KnowledgeBaseDoc.is_deleted == 0)
+    svc = KnowledgeService(db)
+    items, total = await svc.list_docs(user_tenant["tenant_id"], page, page_size, category)
+    return {"code": 200, "data": {"items": items, "total": total, "page": page, "page_size": page_size}, "message": "获取成功"}
 
-    if category:
-        query = query.where(KnowledgeBaseDoc.category == category)
-
-    count_query = select(func.count()).select_from(query.subquery())
-    total = (await db.execute(count_query)).scalar() or 0
-
-    query = query.order_by(KnowledgeBaseDoc.create_time.desc()).offset((page - 1) * page_size).limit(page_size)
-    result = await db.execute(query)
-    docs = result.scalars().all()
-
-    items = [
-        {
-            "id": d.id,
-            "category": d.category,
-            "doc_type": d.doc_type,
-            "name": d.name,
-            "vector_status": d.vector_status,
-            "create_time": d.create_time.isoformat() if d.create_time else None,
-        }
-        for d in docs
-    ]
-
-    return {
-        "code": 200,
-        "data": {"items": items, "total": total, "page": page, "page_size": page_size},
-        "message": "获取成功"
-    }
 
 @router.post("/docs")
 async def create_doc(
@@ -71,39 +44,13 @@ async def create_doc(
     user_tenant: dict = Depends(get_current_user_and_tenant),
 ):
     """录入新知识库文档并执行向量切片"""
-    tenant_id = user_tenant["tenant_id"]
-    doc_id = f"doc_{generate_uuid32()[:12]}"
-    
-    doc = KnowledgeBaseDoc(
-        id=doc_id,
-        tenant_id=tenant_id,
-        category=req.category,
-        doc_type=req.doc_type,
-        name=req.name,
-        vector_status="indexed",
-        created_by=user_tenant.get("user_id"),
+    svc = KnowledgeService(db)
+    doc_id = await svc.create_doc(
+        tenant_id=user_tenant["tenant_id"], user_id=user_tenant.get("user_id"),
+        category=req.category, doc_type=req.doc_type, name=req.name, content=req.content,
     )
-    db.add(doc)
-
-    # 简易切片与 Embedding
-    llm_client = ProviderFactory.get_llm_client()
-    embedding = await llm_client.get_embedding(req.content)
-
-    chunk = KnowledgeChunk(
-        id=f"chunk_{generate_uuid32()[:12]}",
-        tenant_id=tenant_id,
-        doc_id=doc_id,
-        doc_type=req.doc_type,
-        chunk_index=1,
-        content=req.content,
-        embedding=embedding,
-        metadata_json={"name": req.name, "category": req.category},
-        created_by=user_tenant.get("user_id"),
-    )
-    db.add(chunk)
-    await db.commit()
-
     return {"code": 200, "data": {"doc_id": doc_id}, "message": "知识库文档创建并向量化成功"}
+
 
 @router.get("/docs/{doc_id}")
 async def get_doc_detail(
@@ -112,32 +59,13 @@ async def get_doc_detail(
     user_tenant: dict = Depends(get_current_user_and_tenant),
 ):
     """获取知识库文档详情与对应分块"""
-    tenant_id = user_tenant["tenant_id"]
-    res = await db.execute(
-        select(KnowledgeBaseDoc).where(KnowledgeBaseDoc.id == doc_id, KnowledgeBaseDoc.tenant_id == tenant_id)
-    )
-    d = res.scalar_one_or_none()
-    if not d:
-        raise HTTPException(status_code=404, detail="文档不存在")
+    svc = KnowledgeService(db)
+    try:
+        result = await svc.get_doc_detail(user_tenant["tenant_id"], doc_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"code": 200, "data": result, "message": "获取成功"}
 
-    chunks_res = await db.execute(select(KnowledgeChunk).where(KnowledgeChunk.doc_id == doc_id))
-    chunks = chunks_res.scalars().all()
-
-    return {
-        "code": 200,
-        "data": {
-            "id": d.id,
-            "category": d.category,
-            "doc_type": d.doc_type,
-            "name": d.name,
-            "vector_status": d.vector_status,
-            "chunks": [
-                {"id": c.id, "index": c.chunk_index, "content": c.content}
-                for c in chunks
-            ]
-        },
-        "message": "获取成功"
-    }
 
 @router.post("/query")
 async def test_vector_search(
@@ -146,28 +74,6 @@ async def test_vector_search(
     user_tenant: dict = Depends(get_current_user_and_tenant),
 ):
     """测试向量相似度召回 (RAG 调试)"""
-    tenant_id = user_tenant["tenant_id"]
-    llm_client = ProviderFactory.get_llm_client()
-    q_vec = await llm_client.get_embedding(req.query_text)
-
-    # 检索分块
-    query = (
-        select(KnowledgeChunk)
-        .where(KnowledgeChunk.tenant_id == tenant_id)
-        .order_by(KnowledgeChunk.embedding.cosine_distance(q_vec))
-        .limit(req.top_k)
-    )
-    result = await db.execute(query)
-    chunks = result.scalars().all()
-
-    return {
-        "code": 200,
-        "data": {
-            "query": req.query_text,
-            "results": [
-                {"id": c.id, "content": c.content, "doc_type": c.doc_type}
-                for c in chunks
-            ]
-        },
-        "message": "检索完成"
-    }
+    svc = KnowledgeService(db)
+    results = await svc.vector_search(user_tenant["tenant_id"], req.query_text, req.top_k)
+    return {"code": 200, "data": {"query": req.query_text, "results": results}, "message": "检索完成"}

@@ -61,7 +61,10 @@
         <h3 class="modal-title mb-4">录入新商品 SKU</h3>
         <div class="form-group">
           <label class="form-label">商品编码 (SKU Code)</label>
-          <input type="text" v-model="form.code" class="form-input" placeholder="例如: SKU-2026-TENT03" />
+          <div style="display: flex; gap: 8px;">
+            <input type="text" v-model="form.code" class="form-input" placeholder="例如: SKU-2026-TENT03" />
+            <button type="button" class="btn btn-secondary" style="white-space: nowrap; padding: 0 16px;" @click="generateSku">自动生成</button>
+          </div>
         </div>
         <div class="form-group">
           <label class="form-label">商品名称</label>
@@ -105,8 +108,20 @@ const form = ref({
   category: '户外运动',
   description: '',
   specs: { "材质": "高强度复合材料", "重量": "1.5kg" },
-  images: ["https://images.unsplash.com/photo-1510312305653-8ed496efae75?w=800"]
+  images: []
 })
+
+function generateSku() {
+  // 电商标准 SKU 规范: 类目缩写(3位) + 流水号(5位纯数字)
+  const categoryCodeMap: Record<string, string> = {
+    '户外运动': 'OUT',
+    '数码配件': 'DGC',
+    '家居生活': 'HOM'
+  }
+  const prefix = categoryCodeMap[form.value.category] || 'GEN'
+  const randomNum = Math.floor(Math.random() * 90000) + 10000 // 10000-99999
+  form.value.code = `${prefix}-${randomNum}`
+}
 
 async function loadSkus() {
   try {
@@ -120,18 +135,37 @@ async function loadSkus() {
   }
 }
 
+function resetForm() {
+  form.value = {
+    code: '',
+    name: '',
+    category: '户外运动',
+    description: '',
+    specs: { "材质": "高强度复合材料", "重量": "1.5kg" },
+    images: []
+  }
+}
+
 async function submitCreateSku() {
   if (!form.value.code || !form.value.name) {
     alert('请填写编码与商品名称')
     return
   }
   try {
-    await client.post('/skus', form.value)
+    const imgMap: Record<string, string> = {
+      '户外运动': '/bg_img/outdoor.jpg',
+      '数码配件': '/bg_img/digital.jpg',
+      '家居生活': '/bg_img/home.jpg'
+    }
+    const payload = { ...form.value, images: [imgMap[form.value.category] || '/bg_img/outdoor.jpg'] }
+    
+    await client.post('/skus', payload)
     showCreateModal.value = false
+    resetForm()
     alert('SKU 创建成功！')
     loadSkus()
-  } catch (e) {
-    alert('创建失败，编码可能已存在')
+  } catch (e: any) {
+    alert(e.response?.data?.detail || '创建失败，编码可能已存在')
   }
 }
 

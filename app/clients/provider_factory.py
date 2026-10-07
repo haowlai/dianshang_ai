@@ -386,13 +386,13 @@ class ProviderFactory:
     """提供统一的单例或实例模型客户端访问入口"""
 
     @staticmethod
-    def get_llm_client(provider_type: str = "qwen") -> QwenLLMClient:
-        return QwenLLMClient()
+    def get_llm_client(provider_type: str = "qwen", api_key: Optional[str] = None) -> QwenLLMClient:
+        return QwenLLMClient(api_key=api_key)
 
     @staticmethod
-    def get_image_client(provider_type: str = "wanx") -> WanxImageClient:
-        return WanxImageClient()
+    def get_image_client(provider_type: str = "wanx", api_key: Optional[str] = None) -> WanxImageClient:
+        return WanxImageClient(api_key=api_key)
 
     @staticmethod
-    def get_video_client(provider_type: str = "kling") -> KlingVideoClient:
-        return KlingVideoClient()
+    def get_video_client(provider_type: str = "kling", api_key: Optional[str] = None) -> KlingVideoClient:
+        return KlingVideoClient(api_key=api_key)

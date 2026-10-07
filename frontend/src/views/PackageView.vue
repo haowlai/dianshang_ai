@@ -56,9 +56,17 @@ async function downloadPackage(taskId: string) {
   try {
     const res = await client.post('/packages/export', { task_id: taskId })
     const data = res.data?.data
-    alert(`交付物料包打包就绪！\n包含: ${data?.media_assets?.length} 个媒体素材与文案\n下载链接: ${data?.download_archive_url}`)
+    const downloadUrl = data?.download_archive_url || `/api/v1/packages/${taskId}/download`
+    
+    // 触发真实浏览器下载 ZIP 归档文件
+    const a = document.createElement('a')
+    a.href = downloadUrl
+    a.setAttribute('download', `Delivery_${taskId}.zip`)
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   } catch (e) {
-    alert('打包失败')
+    alert('打包下载失败，请检查后端服务状态')
   }
 }
 

@@ -46,7 +46,8 @@ class ConnectionManager:
 ws_manager = ConnectionManager()
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+@router.websocket("/ws/tasks/{task_id}")
+async def websocket_endpoint(websocket: WebSocket, task_id: str = None):
     await ws_manager.connect(websocket)
     try:
         while True:
@@ -59,3 +60,4 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.warning(f"WebSocket 连接异常: {str(e)}")
         ws_manager.disconnect(websocket)
+

@@ -27,8 +27,7 @@ async def record_node_execution(
 ):
     """持久化保存节点运行快照，并向前端工作台广播实时进度"""
     # 1. 广播 WebSocket 状态
-    event = {
-        "type": "node_update",
+    payload_data = {
         "task_id": task_id,
         "node_name": node_name,
         "status": status,
@@ -36,6 +35,11 @@ async def record_node_execution(
         "elapsed_ms": elapsed_ms,
         "cost": cost,
         "output_data": output_data or {},
+    }
+    event = {
+        "type": "node_update",
+        **payload_data,
+        "payload": payload_data,
     }
     await ws_manager.broadcast(event)
 

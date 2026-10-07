@@ -23,24 +23,31 @@ async def requirement_analyzer_node(state: AgentState) -> dict:
 
     logger.info(f"需求分析智能体启动: sku={sku_data.get('name')}")
 
-    # 1. RAG 知识检索 (检索品牌规范与本土化调性)
+    # 1. 调用 Qwen LLM 生成查询向量
+    llm_client = ProviderFactory.get_llm_client("qwen")
+    search_query = f"{sku_data.get('category', '')} {sku_data.get('name', '')}"
+    try:
+        query_vector = await llm_client.get_embedding(search_query)
+    except Exception as e:
+        logger.warning(f"获取 Embedding 异常: {str(e)}")
+        query_vector = [0.0] * 1024 # 兜底向量
+
+    # 2. RAG 知识检索 (真实语义向量检索品牌规范与本土化调性)
     rag_context = ""
     try:
         async with AsyncSessionLocal() as session:
-            # 检索租户相关的品牌与合规知识分块
-            res = await session.execute(
-                select(KnowledgeChunk.content)
-                .where(KnowledgeChunk.tenant_id == tenant_id)
-                .limit(3)
+            from app.repositories.knowledge_repo import KnowledgeRepository
+            repo = KnowledgeRepository(session)
+            chunks = await repo.search_vectors(
+                tenant_id=tenant_id, 
+                query_vector=query_vector, 
+                limit=3, 
+                threshold=0.6
             )
-            chunks = res.scalars().all()
             if chunks:
-                rag_context = "\n".join(chunks)
+                rag_context = "\n".join([c.content for c in chunks])
     except Exception as e:
         logger.warning(f"RAG 检索知识分块异常: {str(e)}")
-
-    # 2. 调用 Qwen LLM 分析需求
-    llm_client = ProviderFactory.get_llm_client("qwen")
     prompt_human = f"""
 请基于以下商品信息与品牌规范，进行出海电商需求深度分析：
 【商品名称】: {sku_data.get('name', '户外商品')}
@@ -59,7 +66,7 @@ async def requirement_analyzer_node(state: AgentState) -> dict:
     system_prompt = load_prompt_template("requirement_analyzer") or "你是一位拥有10年经验的跨境电商资深产品策划总监，擅长精准洞察海外消费者心理。"
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "human", "content": prompt_human}
+        {"role": "user", "content": prompt_human}
     ]
 
     llm_res = await llm_client.chat_completion(messages, model="qwen-plus")

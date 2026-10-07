@@ -40,6 +40,10 @@ async def image_generator_node(state: AgentState) -> dict:
     ]
 
     for sub_type, prompt_str in sub_types:
+        # 增加延迟避免触发阿里云 DashScope API QPS 限制导致回退到 Mock
+        import asyncio
+        await asyncio.sleep(1.5)
+        
         img_res = await image_client.generate_images(prompt=prompt_str, n=1, size="1024*1024")
         urls = img_res.get("urls", [])
         total_cost += img_res.get("cost", 0.0)

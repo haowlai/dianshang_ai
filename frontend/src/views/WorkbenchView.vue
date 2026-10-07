@@ -171,7 +171,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import client from '@/api/client'
 
@@ -185,6 +185,12 @@ const complianceData = ref<any>(null)
 const nodeRuns = ref<any[]>([])
 const activeNodeKey = ref<string>('')
 const selectedNodeRun = ref<any>(null)
+
+// 计时器相关
+const runningElapsedMs = ref(0)
+let timerInterval: any = null
+
+let ws: WebSocket | null = null
 
 const agentNodes = [
   { key: 'orchestrator', name: '总控调度', desc: '全局编排与SKU挂载', icon: '🧭' },
@@ -245,8 +251,84 @@ function copyAllText() {
   alert('文案已成功复制到剪贴板！')
 }
 
+// WebSocket 实时连接
+function initWebSocket() {
+  if (!taskId.value) return
+  
+  // 假设后端 ws 挂载在同样主机的 /ws/tasks/:taskId 上 (或走 vite proxy)
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  // 通过 VITE 代理或直接拼接
+  const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/tasks/${taskId.value}`
+  
+  ws = new WebSocket(wsUrl)
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      if (data.type === 'node_update') {
+        const payload = data.payload || data
+        // 更新或插入 nodeRuns
+        const idx = nodeRuns.value.findIndex(r => r.node_name === payload.node_name)
+        if (idx !== -1) {
+          nodeRuns.value[idx] = { ...nodeRuns.value[idx], ...payload }
+        } else {
+          nodeRuns.value.push(payload)
+        }
+        
+        // 如果当前展开的正好是这个节点，更新它
+        if (activeNodeKey.value === payload.node_name) {
+          selectedNodeRun.value = nodeRuns.value.find(r => r.node_name === payload.node_name)
+        }
+        
+        // 当收到任务更新时，如果是资产生成完毕，刷新一次整体接口以拿到图片/文案
+        if (payload.status === 'success') {
+          fetchTaskDetail()
+        }
+      } else if (data.type === 'task_update') {
+        if (data.payload.status) {
+          taskData.value.status = data.payload.status
+        }
+        if (data.payload.current_node) {
+          taskData.value.current_node = data.payload.current_node
+        }
+      }
+    } catch(e) {
+      console.error('解析 WS 消息失败', e)
+    }
+  }
+  
+  ws.onclose = () => {
+    console.log('WS 连接已断开')
+  }
+}
+
+// 本地计时器，为正在运行的节点累加耗时，给用户 "没有卡死" 的视觉反馈
+function startTimer() {
+  timerInterval = setInterval(() => {
+    runningElapsedMs.value += 1000
+    
+    // 自动更新所有状态为 running 的节点耗时
+    nodeRuns.value.forEach(r => {
+      if (r.status === 'running') {
+        if (!r.elapsed_ms) r.elapsed_ms = 0
+        r.elapsed_ms += 1000
+      }
+    })
+    
+    if (selectedNodeRun.value && selectedNodeRun.value.status === 'running') {
+      selectedNodeRun.value.elapsed_ms = (selectedNodeRun.value.elapsed_ms || 0)
+    }
+  }, 1000)
+}
+
 onMounted(() => {
   fetchTaskDetail()
+  initWebSocket()
+  startTimer()
+})
+
+onUnmounted(() => {
+  if (ws) ws.close()
+  if (timerInterval) clearInterval(timerInterval)
 })
 </script>
 
@@ -385,6 +467,8 @@ onMounted(() => {
   color: #38bdf8;
   max-height: 200px;
   overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .workspace-grid {

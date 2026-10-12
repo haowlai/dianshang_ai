@@ -12,6 +12,10 @@ from app.models.task_node_run import TaskNodeRun
 
 router = APIRouter(prefix="/audit", tags=["审计与成本大盘"])
 
+def list_log(){
+    
+}
+
 @router.get("/logs")
 async def list_operation_logs(
     page: int = Query(1, ge=1),

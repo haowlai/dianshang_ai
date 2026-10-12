@@ -38,7 +38,7 @@ async def list_assets(
     return {"code": 200, "data": {"items": items, "total": total, "page": page, "page_size": page_size}, "message": "获取成功"}
 
 
-@router.post("")
+@router.post("",description="手动上传/登记素材")
 async def create_asset(
     req: AssetCreateRequest,
     db: AsyncSession = Depends(get_db),
